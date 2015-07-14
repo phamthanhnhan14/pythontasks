@@ -1,0 +1,10 @@
+six
+
+[test]
+six
+coverage
+mock
+nose
+flake8
+gevent
+eventlet
