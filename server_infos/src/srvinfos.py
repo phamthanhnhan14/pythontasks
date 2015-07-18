@@ -137,27 +137,6 @@ def get_mem_info():
     return json.dumps(result, indent=2)
 
 
-def get_pid_process():
-    listen_array = []
-    established_array = []
-
-    for proc in psutil.process_iter():
-        try:
-            pinfo = proc.as_dict(attrs=['pid', 'name'])
-            for conn in proc.get_connections():
-                if conn.status == 'LISTEN':
-                    port = conn.local_address
-                    pinfo['port'] = port
-                    pinfo['status'] = conn.status
-                    listen_array.append(pinfo)
-                if conn.status == 'ESTABLISHED':
-                    port = conn.local_address
-                    pinfo['port'] = port
-                    established_array.append(pinfo)
-        except psutil.NoSuchProcess:
-            pass
-    return json.dumps(listen_array, indent=2)
-
 
 def get_cpu_usage():
     percs = psutil.cpu_percent(interval=0, percpu=True)
@@ -315,15 +294,28 @@ def get_route_table():
             return False
         else:
             lines = _remove_comment(output)
-            for line in lines:
-                line_ = line.split()
-                result[line_[0]] = dict(Destination=line_[0], Gateway=line_[1], Genmask=line_[2], Flags=line_[3],
-                                        Metric=line_[4], Ref=line_[5], Use=line_[6], Iface=line_[7])
-            return json.dumps(result, indent=2)
+            #for line in lines:
+            #   line_ = line.split()
+            #    result[line_[0]] = dict(Destination=line_[0], Gateway=line_[1], Genmask=line_[2], Flags=line_[3],
+            #                            Metric=line_[4], Ref=line_[5], Use=line_[6], Iface=line_[7])
+            return json.dumps(lines, indent=2)
     except Exception as ex:
         log.exception(ex)
         return None
 
+def iptables_info():
+    try:
+        result = {}
+        ret = subprocess.Popen(["iptables", "-L", "-n", "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = ret.stdout.read()
+        if len(output.rstrip()) == 0:
+            return False
+        else:
+            lines = [line for line in output.split('\n') if line]
+            return json.dumps(lines, indent=2)
+    except Exception as ex:
+        log.exception(ex)
+        return None
 
 def test():
     filename = "input.txt"
@@ -337,7 +329,7 @@ def test():
     return json.dumps(result, indent=2)
 
 
-def get_resolv():
+def get_resolve():
     filename = "/etc/resolv.conf"
     if not os.path.isfile(filename):
         return "{}"
@@ -364,6 +356,15 @@ def sysctl_info():
     except Exception as ex:
         log.exception(ex)
         return None
+def get_sysctl_info():
+    filename = "/etc/sysctl.conf"
+    if not os.path.isfile(filename):
+        return "{}"
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    lines = [line.strip() for line in lines if not (line.startswith("#") or line.startswith(" ")) and line]
+    return json.dumps(lines, indent=2)
 
 
 def write_to_file(info):
@@ -373,7 +374,7 @@ def write_to_file(info):
     f.close()
 
 
-def init_traffic():
+def _init_traffic():
     '''run in first time to initial'''
     tot_now = psutil.net_io_counters()
     pnic_now = psutil.net_io_counters(pernic=True)
@@ -396,7 +397,7 @@ def read_traffic_info():
     except Exception as ex:
         log.exception(ex)
         print 'Init first'
-        init_traffic()
+        _init_traffic()
     res = {}
     tot_now = psutil.net_io_counters()
     pnic_now = psutil.net_io_counters(pernic=True)
@@ -410,7 +411,7 @@ def read_traffic_info():
                        packets_sent=stats_now.packets_sent,packets_recv=stats_now.packets_recv)
 
         if name not in line.keys():
-            print name + 'is missing'
+            print name + ' is missing, Please check!'
             continue
         key_list = ['bytes_sent','bytes_recv','packets_sent','packets_recv']
         res[name] = {}
@@ -471,7 +472,8 @@ def write_to_file_disk(info):
     f.write(info)
     f.close()
 
-def disk_growup():
+def _init_disk_growup():
+    '''run in first time to initial'''
     result = {}
     for part in psutil.disk_partitions(all=False):
         if os.name == 'nt':
@@ -490,6 +492,8 @@ def read_disk_gu():
         line = json.load(f)
     except Exception as ex:
         log.exception(ex)
+        _init_disk_growup()
+        sys.exit('Run command again after init data!')
     tmp = {}
     for part in psutil.disk_partitions(all=False):
         if os.name == 'nt':
@@ -509,8 +513,15 @@ def read_disk_gu():
     return res
 
 
+def main(funcs):
+    for func in funcs:
+        if sys.argv[1] == func:
+            print eval(func + '()')
+        else:
+            pass
+
 if __name__ == '__main__':
-     # Check version & import psutil , if not compatible , exit """
+     # Check version & import lib , if not compatible , exit """
     """ check python server and import psutil """
     if sys.version_info >= (2,4) and sys.version_info <= (2,5):
         sys.path.append('psutil24')
@@ -520,7 +531,7 @@ if __name__ == '__main__':
     elif sys.version_info >= (2,7) and sys.version_info <= (2,8):
         sys.path.append('psutil27')
     else:
-        print '[Error] Only run with python 2.4 2.6 2.7 - Your version: ', sys.version_info,"."
+        print '[Error] Only run with python 2.4 2.6 2.7 - Your version: ', sys.version_info, "."
         sys.exit(2)
     try:
         if sys.version_info >= (2,4) and sys.version_info <= (2,5):
@@ -534,24 +545,11 @@ if __name__ == '__main__':
         print "[Error] Please cd to project directory :). If still error please contact nhanpt5@vng.com.vn."
         sys.exit(2)
 
-    print 'Server ' + get_primary_ip() + ' all informations at ' + get_current_time()
-    print 'IP list', get_all_ips()
-    print get_os_info()
-    print get_pid_process()
-    print 'Memory Infos ' + get_mem_info()
-    print 'CPU Infos' + get_cpu_usage()
-    print get_secondary_ip()
-    print get_net_stat()
-    print get_disk_info()
-    print get_server_rc_local()
-    print get_server_cron_tab()
-    print get_hosts()
-    print chkconfig_info()
-    print get_update_rc_info()
-    print get_resolv()
-    print sysctl_info()
-    print get_route_table()
-
-    print dpkg_info()
-    print read_traffic_info()
-    print read_disk_gu()
+    funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
+             'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info', 'get_resolve', 'get_sysctl_info',
+             'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu']
+    import argparse
+    parser = argparse.ArgumentParser(description='Server_infos Tool usages')
+    parser.add_argument('command', help='command is:' + str(funcs))
+    args = parser.parse_args()
+    main(funcs)
