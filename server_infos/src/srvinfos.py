@@ -208,7 +208,7 @@ def get_hosts():
     lines = [line.strip().replace('\t', ' ') for line in lines if not line.startswith("#")]
     return json.dumps(lines, indent=2)
 
-def get_update_rc_info():
+def get_update_rc_info_debian():
     try:
         result = {}
         ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -220,6 +220,20 @@ def get_update_rc_info():
             for line in lines:
                 result[line[7:]] = line[:6].strip()
             return json.dumps(result, indent=2)
+    except Exception as ex:
+        log.exception(ex)
+        return None
+
+def get_update_rc_info_redhat():
+    try:
+        result = {}
+        ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = ret.stdout.read() + ret.stderr.read()
+        if len(output.rstrip()) == 0:
+            return False
+        else:
+            lines = [line.strip() for line in output.split('\n') if line]
+            return json.dumps(lines, indent=2)
     except Exception as ex:
         log.exception(ex)
         return None
@@ -491,10 +505,12 @@ if __name__ == '__main__':
         sys.exit('[Error] Please cd to project directory :). If still error please contact nhanpt5@vng.com.vn.')
 
     funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
-             'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info', 'get_resolve', 'get_sysctl_info',
-             'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu']
+             'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info_redhat', 'get_resolve',
+             'get_sysctl_info', 'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu',
+             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian']
     import argparse
     parser = argparse.ArgumentParser(description='Server_infos Tool usages')
     parser.add_argument('command', help='command must be:' + str(funcs))
     args = parser.parse_args()
     main(funcs)
+
