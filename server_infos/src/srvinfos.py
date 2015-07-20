@@ -1,5 +1,6 @@
 __author__ = 'nhanpt5'
 import subprocess, platform, sys, time, os
+import base64
 import socket
 from socket import AF_INET, SOCK_STREAM, SOCK_DGRAM
 import logging
@@ -172,14 +173,14 @@ def get_server_rc_local():
     if not os.path.isfile(filename):
         return "Not found"
     f = open(filename)
-    content = f.readline()
+    lines = f.readlines()
     f.close()
-    if content:
-        for line in content:
-            sts = sts + line
-        return sts
-    else:
-        return "Not note"
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
+                line = line + line_
+    return line
 
 def _get_all_user():
     import pwd
@@ -205,8 +206,12 @@ def get_hosts():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    lines = [line.strip().replace('\t', ' ') for line in lines if not line.startswith("#")]
-    return json.dumps(lines, indent=2)
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not line_.startswith("#"):
+                line = line + line_.strip().replace('\t', ' ') + '\n'
+    return line
 
 def get_update_rc_info_debian():
     try:
@@ -281,18 +286,28 @@ def get_route_table():
         return None
 
 def iptables_info():
-    try:
-        result = {}
-        ret = subprocess.Popen(["iptables", "-L", "-n", "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = [line for line in output.split('\n') if line]
-            return json.dumps(lines, indent=2)
-    except Exception as ex:
-        log.exception(ex)
-        return None
+    filename = "/etc/sysconfig/iptables"
+    if not os.path.isfile(filename):
+        try:
+            result = {}
+            ret = subprocess.Popen(["iptables", "-S"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read()
+            if len(output.rstrip()) == 0:
+                return False
+            else:
+                lines = [line for line in output.split('\n') if line]
+                return lines
+        except Exception as ex:
+            log.exception(ex)
+            return None
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    line = ""
+    if lines:
+        for line_ in lines:
+            line = line + line_
+    return line
 
 def get_resolve():
     filename = "/etc/resolv.conf"
@@ -301,8 +316,12 @@ def get_resolve():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    lines = [line.strip().replace('\t', ' ') for line in lines if not line.startswith("#")]
-    return json.dumps(lines, indent=2)
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not line_.startswith("#"):
+                line = line + line_.strip().replace('\t', ' ') + '\n'
+    return line
 
 def sysctl_info():
     try:
@@ -328,8 +347,12 @@ def get_sysctl_info():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    lines = [line.strip() for line in lines if not (line.startswith("#") or line.startswith(" ")) and line]
-    return json.dumps(lines, indent=2)
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
+                line = line + line_
+    return line
 
 def write_to_file(info):
     filename = 'traffic.txt'
@@ -475,6 +498,34 @@ def read_disk_gu():
 
     return res
 
+def check_mk():
+    filename = "/etc/check_mk/mrpe.cfg"
+    if not os.path.isfile(filename):
+        return "{}"
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
+                line = line + line_
+    return line
+
+def test():
+    filename = "/etc/check_mk/mrpe.cfg"
+    if not os.path.isfile(filename):
+        return "{}"
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
+                line = line + line_
+    return line
+
 def main(funcs):
     for func in funcs:
         if sys.argv[1] == func:
@@ -507,10 +558,17 @@ if __name__ == '__main__':
     funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
              'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info_redhat', 'get_resolve',
              'get_sysctl_info', 'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu',
-             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian']
-    import argparse
-    parser = argparse.ArgumentParser(description='Server_infos Tool usages')
-    parser.add_argument('command', help='command must be:' + str(funcs))
-    args = parser.parse_args()
-    main(funcs)
+             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk']
+
+    if len(sys.argv) > 1:
+        import argparse
+        parser = argparse.ArgumentParser(description='Server_infos Tool usages')
+        parser.add_argument('command', help='command must be:' + str(funcs))
+        args = parser.parse_args()
+        main(funcs)
+    else:
+         print get_server_rc_local()
+
+
+
 
