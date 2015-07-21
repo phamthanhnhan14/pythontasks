@@ -89,6 +89,13 @@ def get_os_info():
     #result['Mac_Ver'] = platform.mac_ver()
     return json.dumps(result, indent=2)
 
+def check_os():
+    if platform.dist()[0] == 'redhat' or platform.dist()[0] == 'centos':
+        return 1
+    elif platform.dist()[0] == 'Ubuntu' or platform.dist()[0] == 'debian':
+        return -1
+    return 0
+
 def get_mem_info():
     virt = psutil.virtual_memory()
     swap = psutil.swap_memory()
@@ -214,51 +221,56 @@ def get_hosts():
     return line
 
 def get_update_rc_info_debian():
-    try:
-        result = {}
-        ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read() + ret.stderr.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = [line.strip() for line in output.split('\n') if line]
-            for line in lines:
-                result[line[7:]] = line[:6].strip()
-            return json.dumps(result, indent=2)
-    except Exception as ex:
-        log.exception(ex)
-        return None
+    if check_os() == -1:
+        try:
+            result = {}
+            ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read() + ret.stderr.read()
+            if len(output.rstrip()) == 0:
+                return False
+            else:
+                lines = [line.strip() for line in output.split('\n') if line]
+                for line in lines:
+                    result[line[7:]] = line[:6].strip()
+                return json.dumps(result, indent=2)
+        except Exception as ex:
+            log.exception(ex)
+            return None
 
 def get_update_rc_info_redhat():
-    try:
-        result = {}
-        ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read() + ret.stderr.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = [line.strip() for line in output.split('\n') if line]
-            return json.dumps(lines, indent=2)
-    except Exception as ex:
-        log.exception(ex)
-        return None
+    if check_os() == 1:
+        try:
+            result = {}
+            ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read() + ret.stderr.read()
+            if len(output.rstrip()) == 0:
+                return False
+            else:
+                lines = [line.strip() for line in output.split('\n') if line]
+                return json.dumps(lines, indent=2)
+        except Exception as ex:
+            log.exception(ex)
+            return None
 
 def chkconfig_info():
-    try:
-        result = {}
-        ret = subprocess.Popen(["chkconfig", "--list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = [line.strip().replace('\t', ' ') for line in output.split('\n') if line]
-            for line in lines:
-                line_ = line.split()
-                result[line_[0]] = line_[1:]
-            return json.dumps(result, indent=2)
-    except Exception as ex:
-        log.exception(ex)
-        return None
+    if check_os() == 1:
+        try:
+            result = {}
+            ret = subprocess.Popen(["chkconfig", "--list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read()
+            if len(output.rstrip()) == 0:
+                return False
+            else:
+                lines = [line.strip().replace('\t', ' ') for line in output.split('\n') if line]
+                for line in lines:
+                    line_ = line.split()
+                    result[line_[0]] = line_[1:]
+                return json.dumps(result, indent=2)
+        except Exception as ex:
+            log.exception(ex)
+            return None
+    else:
+        print 'Not used for this distro.'
 
 def _remove_comment(output):
     lines = []
@@ -286,7 +298,11 @@ def get_route_table():
         return None
 
 def iptables_info():
-    filename = "/etc/sysconfig/iptables"
+    if check_os() == 1:
+        filename = "/etc/sysconfig/iptables"
+    elif check_os() == -1:
+        #another file for Ubuntu
+        filename = "/etc/sysconfig/iptables"
     if not os.path.isfile(filename):
         try:
             result = {}
@@ -295,8 +311,12 @@ def iptables_info():
             if len(output.rstrip()) == 0:
                 return False
             else:
-                lines = [line for line in output.split('\n') if line]
-                return lines
+                lines = output.split('\n')
+                line = ""
+                if lines:
+                    for line_ in lines:
+                        line = line + line_
+                return line
         except Exception as ex:
             log.exception(ex)
             return None
@@ -567,7 +587,7 @@ if __name__ == '__main__':
         args = parser.parse_args()
         main(funcs)
     else:
-         print get_server_rc_local()
+         print 'Please try later'
 
 
 
