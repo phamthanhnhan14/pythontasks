@@ -36,12 +36,12 @@ def get_primary_ip():  # connect to some where to get primary ip
         result = s.getsockname()[0]
         s.close()
         return result
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         print ex
         try:
             s.close()
-        except Exception as ex1:
+        except Exception, ex1:
             log.info(ex1)
             pass
         return None
@@ -56,7 +56,8 @@ def get_secondary_ip():
         for i in output.split('\n'):
             ip_list.add(i.split("/")[0])
             iplist = [ip for ip in list(ip_list) if ip]
-        return iplist
+
+        return json.dump(iplist)
 
 def get_current_time():
     try:
@@ -154,25 +155,29 @@ def get_disk_info():
 def get_net_stat():
     proc_names = {}
     result = {}
-    for p in psutil.process_iter():
-        try:
-            proc_names[p.pid] = p.name()
-        except psutil.Error:
-            pass
-    for c in psutil.net_connections(kind='inet'):
-        laddr = "%s:%s" % (c.laddr)
-        raddr = ""
-        if c.raddr:
-            raddr = "%s:%s" % (c.raddr)
-        if c.status == 'LISTEN':
-            pro = str(c.pid)
-            result[pro] = {}
-            result[pro]['Proto'] = proto_map[(c.family, c.type)]
-            result[pro]['Local Address'] = laddr
-            result[pro]['Remote Address'] = raddr or AD
-            result[pro]['PID'] = c.pid or AD
-            result[pro]['Program Name'] = proc_names.get(c.pid, '?')[:15]
-    return json.dumps(result, indent=2)
+    try:
+        for p in psutil.process_iter():
+            try:
+                proc_names[p.pid] = p.name()
+            except psutil.Error:
+                pass
+        for c in psutil.net_connections(kind='inet'):
+            laddr = "%s:%s" % (c.laddr)
+            raddr = ""
+            if c.raddr:
+                raddr = "%s:%s" % (c.raddr)
+            if c.status == 'LISTEN':
+                pro = str(c.pid)
+                result[pro] = {}
+                result[pro]['Proto'] = proto_map[(c.family, c.type)]
+                result[pro]['Local Address'] = laddr
+                result[pro]['Remote Address'] = raddr or AD
+                result[pro]['PID'] = c.pid or AD
+                result[pro]['Program Name'] = proc_names.get(c.pid, '?')[:15]
+        return json.dumps(result, indent=2)
+    except Exception, ex:
+        log.exception(ex)
+        print ex
 
 def get_server_rc_local():
     filename = "/etc/rc.local"
@@ -233,7 +238,7 @@ def get_update_rc_info_debian():
                 for line in lines:
                     result[line[7:]] = line[:6].strip()
                 return json.dumps(result, indent=2)
-        except Exception as ex:
+        except Exception, ex:
             log.exception(ex)
             return None
 
@@ -248,7 +253,7 @@ def get_update_rc_info_redhat():
             else:
                 lines = [line.strip() for line in output.split('\n') if line]
                 return json.dumps(lines, indent=2)
-        except Exception as ex:
+        except Exception, ex:
             log.exception(ex)
             return None
 
@@ -266,7 +271,7 @@ def chkconfig_info():
                     line_ = line.split()
                     result[line_[0]] = line_[1:]
                 return json.dumps(result, indent=2)
-        except Exception as ex:
+        except Exception, ex:
             log.exception(ex)
             return None
     else:
@@ -293,7 +298,7 @@ def get_route_table():
             #    result[line_[0]] = dict(Destination=line_[0], Gateway=line_[1], Genmask=line_[2], Flags=line_[3],
             #                            Metric=line_[4], Ref=line_[5], Use=line_[6], Iface=line_[7])
             return json.dumps(lines, indent=2)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         return None
 
@@ -317,7 +322,7 @@ def iptables_info():
                     for line_ in lines:
                         line = line + line_
                 return line
-        except Exception as ex:
+        except Exception, ex:
             log.exception(ex)
             return None
     f = open(filename)
@@ -356,7 +361,7 @@ def sysctl_info():
                 _line = line.strip().split('=')
                 result[_line[0]] = _line[1]
             return json.dumps(result, indent=2)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         return None
 
@@ -403,7 +408,7 @@ def read_traffic_info():
     f = open(filename)
     try:
         line = json.load(f)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         print 'Init first'
         _init_traffic()
@@ -452,7 +457,7 @@ def dpkg_info():
                 line_ = line.split(None,4)
                 result[line_[1]] = dict(version=line_[2],type=line_[3],discription=line_[4])
             return json.dumps(result, indent=2)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         return False
 
@@ -468,7 +473,7 @@ def rpm_info():
                 line_ = line.split()
                 result[line] = line_
             return json.dumps(result, indent=2)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         return None
 
@@ -496,7 +501,7 @@ def read_disk_gu():
     f = open(filename)
     try:
         line = json.load(f)
-    except Exception as ex:
+    except Exception, ex:
         log.exception(ex)
         _init_disk_growup()
         sys.exit('Run command again after init data!')
@@ -553,8 +558,34 @@ def main(funcs):
         else:
             pass
 
+def get_pid_process():
+    listen_array = []
+    established_array = []
+    try:
+        for proc in psutil.process_iter():
+            try:
+                pinfo = proc.as_dict(attrs=['pid', 'name'])
+                for conn in proc.get_connections():
+                    if conn.status == 'LISTEN':
+                        port = conn.local_address
+                        pinfo['port'] = str(port)
+                        pinfo['status'] = conn.status
+                        listen_array.append(pinfo)
+                    #elif conn.status == 'ESTABLISHED':
+                    #    port = conn.local_address
+                    #    pinfo['port'] = str(port)
+                    #    pinfo['status'] = conn.status
+                    #    established_array.append(pinfo)
+            except psutil.NoSuchProcess:
+                pass
+        return json.dumps(listen_array, indent=2)
+    except Exception, ex:
+            log.exception(ex)
+            return None
+
+
 if __name__ == '__main__':
-     # Check version & import lib , if not compatible , exit """
+     # Check version & import lib,if not compatible, exit """
     if sys.version_info >= (2,4) and sys.version_info <= (2,5):
         sys.path.append('psutil24')
         sys.path.append('json24')
@@ -578,7 +609,7 @@ if __name__ == '__main__':
     funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
              'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info_redhat', 'get_resolve',
              'get_sysctl_info', 'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu',
-             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk']
+             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk', 'get_pid_process']
 
     if len(sys.argv) > 1:
         import argparse
@@ -587,7 +618,34 @@ if __name__ == '__main__':
         args = parser.parse_args()
         main(funcs)
     else:
-         print 'Please try later'
+         print 'Server Info of ' + get_primary_ip() + ' at ' + get_current_time() + '.'
+         print 'OS Info: ' + get_os_info()
+         print 'Memory Info: ' + get_mem_info()
+         print 'IP sercondary: ' + '\n'
+         print get_secondary_ip()
+         print 'Netstat: ' + '\n'
+         print get_net_stat()
+         #print get_pid_process()
+         #print 'All Hosts: ' + get_hosts()
+         #print 'Resolve:' + get_resolve()
+         #print 'Disk info: ' + get_disk_info()
+         #print 'Server CronTab: ' + '\n'
+         #print get_server_cron_tab()
+         #print get_server_rc_local()
+         #print ' Route table: ' + '\n'
+         #print get_route_table()
+         #print dpkg_info()
+         #print get_sysctl_info()
+         #print iptables_info()
+         #print chkconfig_info()
+         #print get_update_rc_info_debian()
+         #print get_update_rc_info_redhat()
+         #print 'Check MK'
+         #print check_mk()
+         #print 'View traffic: ' + read_traffic_info()
+         #print 'Disk grow-up: ' + '\n'
+         #print read_disk_gu()
+         print get_pid_process()
 
 
 
