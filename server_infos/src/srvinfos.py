@@ -152,33 +152,6 @@ def get_disk_info():
                     Use=int(usage.percent),Type=part.fstype,Options=part.opts)
         return json.dumps(result, indent=2)
 
-def get_net_stat():
-    proc_names = {}
-    result = {}
-    try:
-        for p in psutil.process_iter():
-            try:
-                proc_names[p.pid] = p.name()
-            except psutil.Error:
-                pass
-        for c in psutil.net_connections(kind='inet'):
-            laddr = "%s:%s" % (c.laddr)
-            raddr = ""
-            if c.raddr:
-                raddr = "%s:%s" % (c.raddr)
-            if c.status == 'LISTEN':
-                pro = str(c.pid)
-                result[pro] = {}
-                result[pro]['Proto'] = proto_map[(c.family, c.type)]
-                result[pro]['Local Address'] = laddr
-                result[pro]['Remote Address'] = raddr or AD
-                result[pro]['PID'] = c.pid or AD
-                result[pro]['Program Name'] = proc_names.get(c.pid, '?')[:15]
-        return json.dumps(result, indent=2)
-    except Exception, ex:
-        log.exception(ex)
-        print ex
-
 def get_server_rc_local():
     filename = "/etc/rc.local"
     sts = ""
@@ -199,6 +172,27 @@ def _get_all_user():
 
     user = [usr[0] for usr in pwd.getpwall()]
     return user
+
+def get_authorize_key():
+    users = _get_all_user()
+    autho_keys = ""
+    for usr in users:
+        if str(usr) == 'root':
+            filename = "/root/.ssh/authorized_keys"
+        else:
+            filename = "/home/"+ usr +"/.ssh/authorized_keys"
+        if os.path.isfile(filename):
+            f = open(filename)
+            lines = f.readlines()
+            f.close()
+            line = ""
+            if lines:
+                for line_ in lines:
+                    if not line_.startswith("#"):
+                        line = line + line_.strip() + '\n'
+            autho_keys = autho_keys + "Key for: " + str(usr) + '\n'
+            autho_keys = autho_keys + line
+    return autho_keys
 
 def get_server_cron_tab():
     users = _get_all_user()
@@ -537,6 +531,33 @@ def check_mk():
                 line = line + line_
     return line
 
+def get_net_stat():
+    proc_names = {}
+    result = {}
+    try:
+        for p in psutil.process_iter():
+            try:
+                proc_names[p.pid] = p.name
+            except psutil.Error:
+                pass
+        for c in psutil.net_connections(kind='inet'):
+            laddr = "%s:%s" % (c.laddr)
+            raddr = ""
+            if c.raddr:
+                raddr = "%s:%s" % (c.raddr)
+            if c.status == 'LISTEN':
+                pro = str(c.pid)
+                result[pro] = {}
+                result[pro]['Proto'] = proto_map[(c.family, c.type)]
+                result[pro]['Local Address'] = laddr
+                result[pro]['Remote Address'] = raddr or AD
+                result[pro]['PID'] = c.pid or AD
+                result[pro]['Program Name'] = p.name()
+        return json.dumps(result, indent=2)
+    except Exception, ex:
+        log.exception(ex)
+        print ex
+
 def test():
     filename = "/etc/check_mk/mrpe.cfg"
     if not os.path.isfile(filename):
@@ -558,32 +579,6 @@ def main(funcs):
         else:
             pass
 
-def get_pid_process():
-    listen_array = []
-    established_array = []
-    try:
-        for proc in psutil.process_iter():
-            try:
-                pinfo = proc.as_dict(attrs=['pid', 'name'])
-                for conn in proc.get_connections():
-                    if conn.status == 'LISTEN':
-                        port = conn.local_address
-                        pinfo['port'] = str(port)
-                        pinfo['status'] = conn.status
-                        listen_array.append(pinfo)
-                    #elif conn.status == 'ESTABLISHED':
-                    #    port = conn.local_address
-                    #    pinfo['port'] = str(port)
-                    #    pinfo['status'] = conn.status
-                    #    established_array.append(pinfo)
-            except psutil.NoSuchProcess:
-                pass
-        return json.dumps(listen_array, indent=2)
-    except Exception, ex:
-            log.exception(ex)
-            return None
-
-
 if __name__ == '__main__':
      # Check version & import lib,if not compatible, exit """
     if sys.version_info >= (2,4) and sys.version_info <= (2,5):
@@ -603,13 +598,13 @@ if __name__ == '__main__':
         import psutil
         sys.path.append('netifaces')
         import netifaces
-    except Exception:
-        sys.exit('[Error] Please cd to project directory :). If still error please contact nhanpt5@vng.com.vn.')
+    except Exception, ex:
+        print ex
 
     funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
              'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info_redhat', 'get_resolve',
              'get_sysctl_info', 'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu',
-             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk', 'get_pid_process']
+             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk', 'get_pid_process', 'get_authorize_key']
 
     if len(sys.argv) > 1:
         import argparse
@@ -617,7 +612,7 @@ if __name__ == '__main__':
         parser.add_argument('command', help='command must be:' + str(funcs))
         args = parser.parse_args()
         main(funcs)
-    else:
+    else:       
          print 'Server Info of ' + get_primary_ip() + ' at ' + get_current_time() + '.'
          print 'OS Info: ' + get_os_info()
          print 'Memory Info: ' + get_mem_info()
@@ -625,7 +620,6 @@ if __name__ == '__main__':
          print get_secondary_ip()
          print 'Netstat: ' + '\n'
          print get_net_stat()
-         #print get_pid_process()
          #print 'All Hosts: ' + get_hosts()
          #print 'Resolve:' + get_resolve()
          #print 'Disk info: ' + get_disk_info()
@@ -645,7 +639,9 @@ if __name__ == '__main__':
          #print 'View traffic: ' + read_traffic_info()
          #print 'Disk grow-up: ' + '\n'
          #print read_disk_gu()
-         print get_pid_process()
+         #print get_pid_process()
+         #print get_authorize_key()
+
 
 
 
