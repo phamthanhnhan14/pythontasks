@@ -1,9 +1,9 @@
 __author__ = 'nhanpt5'
 import subprocess, platform, sys, time, os
-import base64
 import socket
 from socket import AF_INET, SOCK_STREAM, SOCK_DGRAM
 import logging
+from urllib2 import urlopen
 
 logging.basicConfig(filename='svrlog.log', level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -35,7 +35,7 @@ def get_primary_ip():  # connect to some where to get primary ip
         s.connect(('8.8.8.8', 80))
         result = s.getsockname()[0]
         s.close()
-        return result
+        return json.dumps(result)
     except Exception, ex:
         log.exception(ex)
         print ex
@@ -46,22 +46,29 @@ def get_primary_ip():  # connect to some where to get primary ip
             pass
         return None
 
+def get_public_ip():
+    try:
+        my_ip = urlopen('http://ip.42.pl/raw').read()
+        return json.dumps(my_ip)
+    except Exception, ex:
+        log.exception(ex)
+
 def get_secondary_ip():
     ip_list = set()
     ret = subprocess.Popen("ip a | grep secondary | awk '{print $2}'", shell=True, stdout=subprocess.PIPE)
     output = ret.stdout.read()
     if len(output.rstrip()) == 0:
-        return False
+        return None
     else:
         for i in output.split('\n'):
             ip_list.add(i.split("/")[0])
             iplist = [ip for ip in list(ip_list) if ip]
-
         return json.dump(iplist)
 
 def get_current_time():
+    cmd = 'date +%Y/%m/%d-%H:%M:%S'
     try:
-        ret = subprocess.Popen("date", shell=True, stdout=subprocess.PIPE)
+        ret = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
         output = ret.stdout.read()
         if len(output.strip()) != 0:
             return output.strip()
@@ -70,7 +77,6 @@ def get_current_time():
     except Exception, ex:
         log.exception(ex)
         print ex
-    return None
 
 def get_os_info():
     def linux_distribution():
@@ -78,7 +84,6 @@ def get_os_info():
             return platform.linux_distribution()
         except:
             return 'N/A'
-
     result = {}
     result['Dist'] = str(platform.dist())
     result['Linux Distribution'] = linux_distribution()
@@ -89,13 +94,6 @@ def get_os_info():
     result['Version'] = platform.version()
     #result['Mac_Ver'] = platform.mac_ver()
     return json.dumps(result, indent=2)
-
-def check_os():
-    if platform.dist()[0] == 'redhat' or platform.dist()[0] == 'centos':
-        return 1
-    elif platform.dist()[0] == 'Ubuntu' or platform.dist()[0] == 'debian':
-        return -1
-    return 0
 
 def get_mem_info():
     virt = psutil.virtual_memory()
@@ -152,26 +150,155 @@ def get_disk_info():
                     Use=int(usage.percent),Type=part.fstype,Options=part.opts)
         return json.dumps(result, indent=2)
 
-def get_server_rc_local():
-    filename = "/etc/rc.local"
-    sts = ""
+def write_to_file_disk(info):
+    filename = 'disk.txt'
+    f = open(filename, 'wb')
+    f.write(info)
+    f.close()
+
+def _init_disk_growup():
+    '''run in first time to initial'''
+    result = {}
+    for part in psutil.disk_partitions(all=False):
+        if os.name == 'nt':
+            if 'cdrom' in part.opts or part.fstype == '':
+                continue
+        usage = psutil.disk_usage(part.mountpoint)
+        result[part.mountpoint]=dict(Device=part.device,Total=usage.total,Used=usage.used,
+                                     Free=int(usage.free),Use=int(usage.percent),Type=part.fstype,Time=get_current_time())
+
+    return write_to_file_disk(json.dumps(result, indent=2))
+
+def read_disk_gu():
+    filename = "disk.txt"
+    f = open(filename)
+    try:
+        line = json.load(f)
+    except Exception, ex:
+        log.exception(ex)
+        _init_disk_growup()
+        sys.exit('Run command again after init data!')
+    tmp = {}
+    for part in psutil.disk_partitions(all=False):
+        if os.name == 'nt':
+            if 'cdrom' in part.opts or part.fstype == '':
+                continue
+        usage = psutil.disk_usage(part.mountpoint)
+        tmp[part.mountpoint]=dict(Device=part.device,Total=usage.total,Used=usage.used,
+                                  Free=int(usage.free),Use=int(usage.percent),Type=part.fstype,Time=get_current_time())
+    result = {}
+    for key in line:
+        k = str(key)
+        if k not in tmp:
+            continue
+        result[k] = {}
+        result[k]['delta'] = int(line[k]['Free']-tmp[k]['Free'])
+        result[k]['Time'] = tmp[k]['Time']
+    write_to_file_disk(json.dumps(tmp, indent=2))
+    return json.dumps(result)
+
+def write_to_file(info):
+    filename = 'traffic.txt'
+    f = open(filename, 'wb')
+    f.write(info)
+    f.close()
+
+def _init_net_io():
+    '''run in first time to initial'''
+    tot_now = psutil.net_io_counters()
+    pnic_now = psutil.net_io_counters(pernic=True)
+    tmp = dict(Total_bytes_sent=tot_now.bytes_sent, Total_bytes_recv=tot_now.bytes_recv,
+                Total_packets_sent=tot_now.packets_sent,Total_packets_recv=tot_now.packets_recv,Time=get_current_time())
+
+    nic_names = list(pnic_now.keys())
+    for name in nic_names:
+        stats_now = pnic_now[name]
+        tmp[name]= dict(bytes_sent=stats_now.bytes_sent,bytes_recv=stats_now.bytes_recv,
+                       packets_sent=stats_now.packets_sent,packets_recv=stats_now.packets_recv)
+
+    return write_to_file(json.dumps(tmp,indent=2))
+
+def read_net_io_counter():
+    filename = "traffic.txt"
     if not os.path.isfile(filename):
-        return "Not found"
+        _init_net_io()
+        return "{}"
+    f = open(filename)
+    try:
+        line = json.load(f)
+    except Exception, ex:
+        log.exception(ex)
+        _init_net_io()
+        sys.exit('Init first')
+    res = {}
+    tot_now = psutil.net_io_counters()
+    pnic_now = psutil.net_io_counters(pernic=True)
+    tmp = dict(Total_bytes_sent=tot_now.bytes_sent, Total_bytes_recv=tot_now.bytes_recv,
+                Total_packets_sent=tot_now.packets_sent,Total_packets_recv=tot_now.packets_recv,Time=get_current_time())
+
+    nic_names = list(pnic_now.keys())
+    for name in nic_names:
+        stats_now = pnic_now[name]
+        tmp[name]= dict(bytes_sent=stats_now.bytes_sent,bytes_recv=stats_now.bytes_recv,
+                       packets_sent=stats_now.packets_sent,packets_recv=stats_now.packets_recv)
+
+        if name not in line.keys():
+            print name + ' is missing, Please check!'
+            continue
+        key_list = ['bytes_sent','bytes_recv','packets_sent','packets_recv']
+        res[name] = {}
+        for key in key_list:
+            res[name][key] = int(tmp[name][key] - line[name][key])
+    keys_list = ['Total_bytes_sent', 'Total_bytes_recv', 'Total_packets_sent','Total_packets_recv']
+    for keys in keys_list:
+        res[keys] = int(tmp[keys] - line[keys])
+        res['Time'] = tmp['Time']
+    write_to_file(json.dumps(tmp,indent=2))
+    return json.dumps(res, indent=2)
+
+def get_hosts():
+    filename = "/etc/hosts"
+    if not os.path.isfile(filename):
+        return "{}"
     f = open(filename)
     lines = f.readlines()
     f.close()
     line = ""
     if lines:
         for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
-                line = line + line_
+            if not line_.startswith("#") and line_.strip():
+                line = line + line_.strip().replace('\t', ' ') + '\n'
+    return line
+
+def get_resolve():
+    filename = "/etc/resolv.conf"
+    if not os.path.isfile(filename):
+        return "{}"
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not line_.startswith("#") and line_.strip():
+                line = line + line_.strip().replace('\t', ' ') + '\n'
     return line
 
 def _get_all_user():
     import pwd
-
     user = [usr[0] for usr in pwd.getpwall()]
     return user
+
+def get_server_cron_tab():
+    users = _get_all_user()
+    result = {}
+    for usr in users:
+        ret = subprocess.Popen(["crontab", "-u", usr, "-l"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lines = ret.stdout.readlines()
+        lines = [line.strip() for line in lines if not line.startswith("#")]
+        result[usr] = [line for line in lines if line]
+
+    return json.dumps(result, indent=2)
 
 def get_authorize_key():
     users = _get_all_user()
@@ -188,45 +315,42 @@ def get_authorize_key():
             line = ""
             if lines:
                 for line_ in lines:
-                    if not line_.startswith("#"):
+                    if not line_.startswith("#") and line_.strip():
                         line = line + line_.strip() + '\n'
             autho_keys = autho_keys + "Key for: " + str(usr) + '\n'
             autho_keys = autho_keys + line
     return autho_keys
 
-def get_server_cron_tab():
-    users = _get_all_user()
-    result = {}
-    for usr in users:
-        ret = subprocess.Popen(["crontab", "-u", usr, "-l"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        lines = ret.stdout.readlines()
-        lines = [line.strip() for line in lines if not line.startswith("#")]
-        result[usr] = [line for line in lines if line]
+def check_os():
+    if platform.dist()[0] == 'redhat' or platform.dist()[0] == 'centos':
+        return 1
+    elif platform.dist()[0] == 'Ubuntu' or platform.dist()[0] == 'debian':
+        return -1
+    return 0
 
-    return json.dumps(result, indent=2)
-
-def get_hosts():
-    filename = "/etc/hosts"
-    if not os.path.isfile(filename):
-        return "{}"
-    f = open(filename)
-    lines = f.readlines()
-    f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not line_.startswith("#"):
-                line = line + line_.strip().replace('\t', ' ') + '\n'
-    return line
+def get_server_rc_local():
+    if check_os() == -1: #ubuntu or debian
+        filename = "/etc/rc.local"
+        if not os.path.isfile(filename):
+            return "{}"
+        f = open(filename)
+        lines = f.readlines()
+        f.close()
+        line = ""
+        if lines:
+            for line_ in lines:
+                if not (line_.startswith("#") or line_.startswith(" ") or line_.startswith("exit")) and line_.strip():
+                    line = line + line_
+        return line
 
 def get_update_rc_info_debian():
-    if check_os() == -1:
+    if check_os() == -1: #ubuntu or debian
         try:
             result = {}
             ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             output = ret.stdout.read() + ret.stderr.read()
             if len(output.rstrip()) == 0:
-                return False
+                return None
             else:
                 lines = [line.strip() for line in output.split('\n') if line]
                 for line in lines:
@@ -235,30 +359,36 @@ def get_update_rc_info_debian():
         except Exception, ex:
             log.exception(ex)
             return None
+    else:
+        print 'Not run with this distro (Centos or Redhat)'
+        return "{}"
 
-def get_update_rc_info_redhat():
+def get_status_all_service_RH():
     if check_os() == 1:
         try:
             result = {}
             ret = subprocess.Popen(["service", "--status-all"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             output = ret.stdout.read() + ret.stderr.read()
             if len(output.rstrip()) == 0:
-                return False
+                return None
             else:
                 lines = [line.strip() for line in output.split('\n') if line]
                 return json.dumps(lines, indent=2)
         except Exception, ex:
             log.exception(ex)
             return None
+    else:
+        print 'Not run with this distro (Ubuntu or Debian)'
+        return "{}"
 
-def chkconfig_info():
+def chkconfig_info_RH():
     if check_os() == 1:
         try:
             result = {}
             ret = subprocess.Popen(["chkconfig", "--list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             output = ret.stdout.read()
             if len(output.rstrip()) == 0:
-                return False
+                return None
             else:
                 lines = [line.strip().replace('\t', ' ') for line in output.split('\n') if line]
                 for line in lines:
@@ -269,14 +399,127 @@ def chkconfig_info():
             log.exception(ex)
             return None
     else:
-        print 'Not used for this distro.'
+        print 'Not run with this distro (Ubuntu or Debian)'
+        return "{}"
+
+def get_sysctl_info_file():
+    filename = "/etc/sysctl.conf"
+    if not os.path.isfile(filename):
+        return "{}"
+    f = open(filename)
+    lines = f.readlines()
+    f.close()
+    line = ""
+    if lines:
+        for line_ in lines:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_.strip():
+                line = line + line_
+    return line
+
+def get_sysctl_info_all():
+    try:
+        result = {}
+        ret = subprocess.Popen(["sysctl", "-a"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = ret.stdout.read()
+        if len(output.rstrip()) == 0:
+            return None
+        else:
+            lines = [line for line in output.split('\n') if line]
+            for line in lines:
+                _line = line.strip().split('=')
+                result[_line[0]] = _line[1]
+            return json.dumps(result, indent=2)
+    except Exception, ex:
+        log.exception(ex)
+        return None
 
 def _remove_comment(output):
     lines = []
     for line in output.split('\n'):
-        if not (line.startswith("Dest") or line.startswith("Kern")) and line:
+        if not ((line.startswith("|") or line.startswith("Desired")) or line.startswith("++")) and line:
             lines.append(line.strip())
     return lines
+
+def dpkg_info():
+    if check_os() == -1:
+        try:
+            result = {}
+            ret = subprocess.Popen(["dpkg", "--list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read()
+            if len(output.rstrip()) == 0:
+                return None
+            else:
+                lines = _remove_comment(output)
+                for line in lines:
+                    line_ = line.split(None,4)
+                    result[line_[1]] = dict(version=line_[2],type=line_[3],discription=line_[4])
+                return json.dumps(result, indent=2)
+        except Exception, ex:
+            log.exception(ex)
+            return None
+    else:
+        print 'Not run with this distro (Centos or Redhat)'
+        return "{}"
+
+def rpm_info_RH():
+    if check_os() == 1:
+        try:
+            result = {}
+            ret = subprocess.Popen(["rpm", "-qa"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = ret.stdout.read()
+            if len(output.rstrip()) == 0:
+                return False
+            else:
+                for line in output:
+                    line_ = line.split()
+                    result[line] = line_
+                return json.dumps(result, indent=2)
+        except Exception, ex:
+            log.exception(ex)
+            return None
+    else:
+        print 'Not run with this distro (Ubuntu or Debian)'
+        return "{}"
+
+def get_all_process():
+    result = {}
+    try:
+        for p in psutil.process_iter():
+            try:
+                result[p.pid] = p.name()
+            except psutil.Error:
+                pass
+        return json.dumps(result, indent=2)
+    except Exception, ex:
+        log.exception(ex)
+        print ex
+
+def get_net_stat_listen():
+    proc_names = {}
+    result = {}
+    try:
+        for p in psutil.process_iter():
+            try:
+                proc_names[p.pid] = p.name
+            except psutil.Error:
+                pass
+        for c in psutil.net_connections(kind='inet'):
+            laddr = "%s:%s" % (c.laddr)
+            raddr = ""
+            if c.raddr:
+                raddr = "%s:%s" % (c.raddr)
+            if c.status == 'LISTEN':
+                pro = str(c.pid)
+                result[pro] = {}
+                result[pro]['Proto'] = proto_map[(c.family, c.type)]
+                result[pro]['Local Address'] = laddr
+                result[pro]['Remote Address'] = raddr or AD
+                result[pro]['PID'] = c.pid or AD
+                result[pro]['Program Name'] = p.name()
+        return json.dumps(result, indent=2)
+    except Exception, ex:
+        log.exception(ex)
+        print ex
 
 def get_route_table():
     try:
@@ -284,19 +527,20 @@ def get_route_table():
         ret = subprocess.Popen(["route", "-n"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output = ret.stdout.read()
         if len(output.rstrip()) == 0:
-            return False
+            return None
         else:
-            lines = _remove_comment(output)
-            #for line in lines:
-            #   line_ = line.split()
-            #    result[line_[0]] = dict(Destination=line_[0], Gateway=line_[1], Genmask=line_[2], Flags=line_[3],
-            #                            Metric=line_[4], Ref=line_[5], Use=line_[6], Iface=line_[7])
-            return json.dumps(lines, indent=2)
+            lines = output.split('\n')
+            line = ""
+            if lines:
+                for line_ in lines:
+                    if not (line_.startswith("Dest") or line_.startswith("Kern")) and line_.strip():
+                        line = line + line_ + '\n'
+            return line
     except Exception, ex:
         log.exception(ex)
         return None
 
-def iptables_info():
+def get_iptables_info():
     if check_os() == 1:
         filename = "/etc/sysconfig/iptables"
     elif check_os() == -1:
@@ -328,195 +572,6 @@ def iptables_info():
             line = line + line_
     return line
 
-def get_resolve():
-    filename = "/etc/resolv.conf"
-    if not os.path.isfile(filename):
-        return "{}"
-    f = open(filename)
-    lines = f.readlines()
-    f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not line_.startswith("#"):
-                line = line + line_.strip().replace('\t', ' ') + '\n'
-    return line
-
-def sysctl_info():
-    try:
-        result = {}
-        ret = subprocess.Popen(["sysctl", "-a"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = [line for line in output.split('\n') if line]
-            for line in lines:
-                _line = line.strip().split('=')
-                result[_line[0]] = _line[1]
-            return json.dumps(result, indent=2)
-    except Exception, ex:
-        log.exception(ex)
-        return None
-
-def get_sysctl_info():
-    filename = "/etc/sysctl.conf"
-    if not os.path.isfile(filename):
-        return "{}"
-    f = open(filename)
-    lines = f.readlines()
-    f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
-                line = line + line_
-    return line
-
-def write_to_file(info):
-    filename = 'traffic.txt'
-    f = open(filename, 'wb')
-    f.write(info)
-    f.close()
-
-def _init_traffic():
-    '''run in first time to initial'''
-    tot_now = psutil.net_io_counters()
-    pnic_now = psutil.net_io_counters(pernic=True)
-    tmp = dict(Total_bytes_sent=tot_now.bytes_sent, Total_bytes_recv=tot_now.bytes_recv,
-                Total_packets_sent=tot_now.packets_sent,Total_packets_recv=tot_now.packets_recv)
-
-    nic_names = list(pnic_now.keys())
-    for name in nic_names:
-        stats_now = pnic_now[name]
-        tmp[name]= dict(bytes_sent=stats_now.bytes_sent,bytes_recv=stats_now.bytes_recv,
-                       packets_sent=stats_now.packets_sent,packets_recv=stats_now.packets_recv)
-
-    return write_to_file(json.dumps(tmp))
-
-def read_traffic_info():
-    filename = "traffic.txt"
-    if not os.path.isfile(filename):
-        _init_traffic()
-        return "{}"
-    f = open(filename)
-    try:
-        line = json.load(f)
-    except Exception, ex:
-        log.exception(ex)
-        print 'Init first'
-        _init_traffic()
-    res = {}
-    tot_now = psutil.net_io_counters()
-    pnic_now = psutil.net_io_counters(pernic=True)
-    tmp = dict(Total_bytes_sent=tot_now.bytes_sent, Total_bytes_recv=tot_now.bytes_recv,
-                Total_packets_sent=tot_now.packets_sent,Total_packets_recv=tot_now.packets_recv)
-
-    nic_names = list(pnic_now.keys())
-    for name in nic_names:
-        stats_now = pnic_now[name]
-        tmp[name]= dict(bytes_sent=stats_now.bytes_sent,bytes_recv=stats_now.bytes_recv,
-                       packets_sent=stats_now.packets_sent,packets_recv=stats_now.packets_recv)
-
-        if name not in line.keys():
-            print name + ' is missing, Please check!'
-            continue
-        key_list = ['bytes_sent','bytes_recv','packets_sent','packets_recv']
-        res[name] = {}
-        for key in key_list:
-            res[name][key] = int(tmp[name][key] - line[name][key])
-    keys_list = ['Total_bytes_sent', 'Total_bytes_recv', 'Total_packets_sent','Total_packets_recv']
-    for keys in keys_list:
-        res[keys] = int(tmp[keys] - line[keys])
-    write_to_file(json.dumps(tmp))
-    return json.dumps(res, indent=2)
-
-def _remove_comment_2(output):
-    lines = []
-    for line in output.split('\n'):
-        if not ((line.startswith("|") or line.startswith("Desired")) or line.startswith("++")) and line:
-            lines.append(line.strip())
-    return lines
-
-def dpkg_info():
-    try:
-        result = {}
-        ret = subprocess.Popen(["dpkg", "--list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            lines = _remove_comment_2(output)
-            for line in lines:
-                line_ = line.split(None,4)
-                result[line_[1]] = dict(version=line_[2],type=line_[3],discription=line_[4])
-            return json.dumps(result, indent=2)
-    except Exception, ex:
-        log.exception(ex)
-        return False
-
-def rpm_info():
-    try:
-        result = {}
-        ret = subprocess.Popen(["rpm", "-qa"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = ret.stdout.read()
-        if len(output.rstrip()) == 0:
-            return False
-        else:
-            for line in output:
-                line_ = line.split()
-                result[line] = line_
-            return json.dumps(result, indent=2)
-    except Exception, ex:
-        log.exception(ex)
-        return None
-
-def write_to_file_disk(info):
-    filename = 'disk.txt'
-    f = open(filename, 'wb')
-    f.write(info)
-    f.close()
-
-def _init_disk_growup():
-    '''run in first time to initial'''
-    result = {}
-    for part in psutil.disk_partitions(all=False):
-        if os.name == 'nt':
-            if 'cdrom' in part.opts or part.fstype == '':
-                continue
-        usage = psutil.disk_usage(part.mountpoint)
-        result[part.mountpoint]=dict(Device=part.device,Total=usage.total,Used=usage.used,
-                                     Free=int(usage.free),Use=int(usage.percent),Type=part.fstype)
-
-    return write_to_file_disk(json.dumps(result, indent=2))
-
-def read_disk_gu():
-    filename = "disk.txt"
-    f = open(filename)
-    try:
-        line = json.load(f)
-    except Exception, ex:
-        log.exception(ex)
-        _init_disk_growup()
-        sys.exit('Run command again after init data!')
-    tmp = {}
-    for part in psutil.disk_partitions(all=False):
-        if os.name == 'nt':
-            if 'cdrom' in part.opts or part.fstype == '':
-                continue
-        usage = psutil.disk_usage(part.mountpoint)
-        tmp[part.mountpoint]=dict(Device=part.device,Total=usage.total,Used=usage.used,
-                                  Free=int(usage.free),Use=int(usage.percent),Type=part.fstype)
-    res = {}
-    for key in line:
-        k = str(key)
-        if k not in tmp:
-            continue
-        res[k]={}
-        res[k]['delta'] = int(line[k]['Free']-tmp[k]['Free'])
-
-    return res
-
 def check_mk():
     filename = "/etc/check_mk/mrpe.cfg"
     if not os.path.isfile(filename):
@@ -527,48 +582,7 @@ def check_mk():
     line = ""
     if lines:
         for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
-                line = line + line_
-    return line
-
-def get_net_stat():
-    proc_names = {}
-    result = {}
-    try:
-        for p in psutil.process_iter():
-            try:
-                proc_names[p.pid] = p.name
-            except psutil.Error:
-                pass
-        for c in psutil.net_connections(kind='inet'):
-            laddr = "%s:%s" % (c.laddr)
-            raddr = ""
-            if c.raddr:
-                raddr = "%s:%s" % (c.raddr)
-            if c.status == 'LISTEN':
-                pro = str(c.pid)
-                result[pro] = {}
-                result[pro]['Proto'] = proto_map[(c.family, c.type)]
-                result[pro]['Local Address'] = laddr
-                result[pro]['Remote Address'] = raddr or AD
-                result[pro]['PID'] = c.pid or AD
-                result[pro]['Program Name'] = p.name()
-        return json.dumps(result, indent=2)
-    except Exception, ex:
-        log.exception(ex)
-        print ex
-
-def test():
-    filename = "/etc/check_mk/mrpe.cfg"
-    if not os.path.isfile(filename):
-        return "{}"
-    f = open(filename)
-    lines = f.readlines()
-    f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_:
+            if not (line_.startswith("#") or line_.startswith(" ")) and line_.strip():
                 line = line + line_
     return line
 
@@ -601,10 +615,11 @@ if __name__ == '__main__':
     except Exception, ex:
         print ex
 
-    funcs = ['get_os_info', 'get_current_time', 'get_primary_ip', 'get_mem_info', 'get_secondary_ip', 'get_net_stat',
-             'get_disk_info', 'get_server_cron_tab', 'get_hosts', 'get_update_rc_info_redhat', 'get_resolve',
-             'get_sysctl_info', 'get_route_table', 'dpkg_info', 'read_traffic_info', 'iptables_info', 'read_disk_gu',
-             'get_server_rc_local', 'chkconfig_info', 'get_update_rc_info_debian', 'check_mk', 'get_pid_process', 'get_authorize_key']
+    funcs = ['get_all_ips', 'get_primary_ip', 'get_public_ip', 'get_secondary_ip', 'get_current_time', 'get_os_info', 'get_mem_info',
+         'get_cpu_usage', 'get_disk_info', 'read_disk_gu', 'read_net_io_counter', 'get_hosts', 'get_resolve', 'get_server_cron_tab',
+         'get_authorize_key', 'get_server_rc_local', 'get_update_rc_info_debian', 'get_status_all_service_RH', 'chkconfig_info_RH',
+         'get_sysctl_info_file', 'get_sysctl_info_all', 'dpkg_info', 'rpm_info_RH', 'get_all_process', 'get_net_stat_listen',
+         'get_route_table', 'get_iptables_info', 'check_mk']
 
     if len(sys.argv) > 1:
         import argparse
@@ -612,35 +627,27 @@ if __name__ == '__main__':
         parser.add_argument('command', help='command must be:' + str(funcs))
         args = parser.parse_args()
         main(funcs)
-    else:       
-         print 'Server Info of ' + get_primary_ip() + ' at ' + get_current_time() + '.'
-         print 'OS Info: ' + get_os_info()
-         print 'Memory Info: ' + get_mem_info()
-         print 'IP sercondary: ' + '\n'
-         print get_secondary_ip()
-         print 'Netstat: ' + '\n'
-         print get_net_stat()
-         #print 'All Hosts: ' + get_hosts()
-         #print 'Resolve:' + get_resolve()
-         #print 'Disk info: ' + get_disk_info()
-         #print 'Server CronTab: ' + '\n'
-         #print get_server_cron_tab()
-         #print get_server_rc_local()
-         #print ' Route table: ' + '\n'
-         #print get_route_table()
-         #print dpkg_info()
-         #print get_sysctl_info()
-         #print iptables_info()
-         #print chkconfig_info()
-         #print get_update_rc_info_debian()
-         #print get_update_rc_info_redhat()
-         #print 'Check MK'
-         #print check_mk()
-         #print 'View traffic: ' + read_traffic_info()
-         #print 'Disk grow-up: ' + '\n'
-         #print read_disk_gu()
-         #print get_pid_process()
-         #print get_authorize_key()
+    else:
+         json_str = {}
+         result = []
+         json_str['ip'] = get_primary_ip()
+         json_str['mem'] = get_mem_info()
+         json_str['cpu'] = get_cpu_usage()
+         json_str['disk_gu'] = json.dumps(read_disk_gu())
+         json_str['net_io'] = json.dumps(read_net_io_counter())
+         json_str['hosts'] = json.dumps(get_hosts())
+         json_str['resolve'] = json.dumps(get_resolve())
+         json_str['auth_key'] = json.dumps(get_authorize_key())
+         json_str['ip_table'] = json.dumps(get_iptables_info())
+         json_str['process'] = json.dumps(get_all_process())
+         json_str['net_stat'] = json.dumps(get_net_stat_listen())
+         json_str['check_mk'] = json.dumps(check_mk())
+         result.append(json_str)
+         print result
+         
+         #for res in result:
+         #    print json.loads(res['check_mk'])
+
 
 
 
