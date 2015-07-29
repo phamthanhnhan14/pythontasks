@@ -464,16 +464,27 @@ def dpkg_info():
 def rpm_info_RH():
     if check_os() == 1:
         try:
+<<<<<<< HEAD
+=======
+            result = {}
+>>>>>>> 81b616e1b71b197e4ff69d5268e8268cffe83d32
             ret = subprocess.Popen(["rpm", "-qa"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             output = ret.stdout.read()
             if len(output.rstrip()) == 0:
                 return False
             else:
+<<<<<<< HEAD
                 lines = ""
                 for line in output.split():
                     if line:
                         lines = lines + line + '\n'
                 return lines
+=======
+                for line in output:
+                    line_ = line.split()
+                    result[line] = line_
+                return json.dumps(result, indent=2)
+>>>>>>> 81b616e1b71b197e4ff69d5268e8268cffe83d32
         except Exception, ex:
             log.exception(ex)
             return None
