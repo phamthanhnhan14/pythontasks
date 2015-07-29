@@ -1,1 +1,37 @@
-{"vmnet1": {"packets_sent": 519, "bytes_sent": 0, "packets_recv": 0, "bytes_recv": 0}, "lo": {"packets_sent": 43067, "bytes_sent": 3529376, "packets_recv": 43067, "bytes_recv": 3529376}, "Total_packets_recv": 1958678, "vmnet8": {"packets_sent": 520, "bytes_sent": 0, "packets_recv": 0, "bytes_recv": 0}, "Total_bytes_sent": 109322172, "wlan0": {"packets_sent": 962176, "bytes_sent": 105792796, "packets_recv": 1915611, "bytes_recv": 2611582509}, "Total_packets_sent": 1006282, "Total_bytes_recv": 2615111885, "eth0": {"packets_sent": 0, "bytes_sent": 0, "packets_recv": 0, "bytes_recv": 0}}
+{
+  "tun0": {
+    "packets_sent": 10868, 
+    "bytes_sent": 2912423, 
+    "packets_recv": 10079, 
+    "bytes_recv": 5422798
+  }, 
+  "vmnet1": {
+    "packets_sent": 596, 
+    "bytes_sent": 0, 
+    "packets_recv": 0, 
+    "bytes_recv": 0
+  }, 
+  "lo": {
+    "packets_sent": 5709365, 
+    "bytes_sent": 1719228428, 
+    "packets_recv": 5709365, 
+    "bytes_recv": 1719228428
+  }, 
+  "Total_packets_sent": 14325875, 
+  "Total_packets_recv": 23778939, 
+  "vmnet8": {
+    "packets_sent": 2663, 
+    "bytes_sent": 0, 
+    "packets_recv": 1582, 
+    "bytes_recv": 0
+  }, 
+  "Total_bytes_sent": 4236008100, 
+  "Time": "2015/07/29-12:50:45", 
+  "Total_bytes_recv": 9804568146, 
+  "eth0": {
+    "packets_sent": 8602383, 
+    "bytes_sent": 2513867249, 
+    "packets_recv": 18057913, 
+    "bytes_recv": 8079916920
+  }
+}

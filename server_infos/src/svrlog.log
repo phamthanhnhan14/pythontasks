@@ -1,0 +1,17 @@
+2015-07-29 10:15:35,873 - ERROR - <urlopen error (-3, 'Temporary failure in name resolution')>
+Traceback (most recent call last):
+  File "srvinfos.py", line 51, in get_public_ip
+    my_ip = urlopen('http://ip.42.pl/raw').read()
+  File "/usr/lib64/python2.4/urllib2.py", line 130, in urlopen
+    return _opener.open(url, data)
+  File "/usr/lib64/python2.4/urllib2.py", line 358, in open
+    response = self._open(req, data)
+  File "/usr/lib64/python2.4/urllib2.py", line 376, in _open
+    '_open', req)
+  File "/usr/lib64/python2.4/urllib2.py", line 337, in _call_chain
+    result = func(*args)
+  File "/usr/lib64/python2.4/urllib2.py", line 1021, in http_open
+    return self.do_open(httplib.HTTPConnection, req)
+  File "/usr/lib64/python2.4/urllib2.py", line 996, in do_open
+    raise URLError(err)
+URLError: <urlopen error (-3, 'Temporary failure in name resolution')>
