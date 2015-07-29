@@ -263,11 +263,7 @@ def get_hosts():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not line_.startswith("#") and line_.strip():
-                line = line + line_.strip().replace('\t', ' ') + '\n'
+    line = '\n'.join(_line.strip().replace('\t', ' ') for _line in lines if not _line.startswith("#") and _line.strip())
     return line
 
 def get_resolve():
@@ -277,11 +273,7 @@ def get_resolve():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not line_.startswith("#") and line_.strip():
-                line = line + line_.strip().replace('\t', ' ') + '\n'
+    line = '\n'.join(_line.strip().replace('\t', ' ') for _line in lines if not _line.startswith("#") and _line.strip())
     return line
 
 def _get_all_user():
@@ -302,7 +294,7 @@ def get_server_cron_tab():
 
 def get_authorize_key():
     users = _get_all_user()
-    autho_keys = ""
+    auth_keys = ""
     for usr in users:
         if str(usr) == 'root':
             filename = "/root/.ssh/authorized_keys"
@@ -312,14 +304,9 @@ def get_authorize_key():
             f = open(filename)
             lines = f.readlines()
             f.close()
-            line = ""
-            if lines:
-                for line_ in lines:
-                    if not line_.startswith("#") and line_.strip():
-                        line = line + line_.strip() + '\n'
-            autho_keys = autho_keys + "Key for: " + str(usr) + '\n'
-            autho_keys = autho_keys + line
-    return autho_keys
+            line = ''.join(_line for _line in lines if not _line.startswith("#") and _line.strip())
+            auth_keys = auth_keys + "Key for: " + str(usr) + '\n' + line
+    return auth_keys
 
 def check_os():
     if platform.dist()[0] == 'redhat' or platform.dist()[0] == 'centos':
@@ -336,11 +323,8 @@ def get_server_rc_local():
         f = open(filename)
         lines = f.readlines()
         f.close()
-        line = ""
-        if lines:
-            for line_ in lines:
-                if not (line_.startswith("#") or line_.startswith(" ") or line_.startswith("exit")) and line_.strip():
-                    line = line + line_
+        line = ''.join(_line for _line in lines if not (_line.startswith("#") or _line.startswith(" ")
+                                                        or _line.startswith("exit")) and _line.strip())
         return line
 
 def get_update_rc_info_debian():
@@ -392,8 +376,8 @@ def chkconfig_info_RH():
             else:
                 lines = [line.strip().replace('\t', ' ') for line in output.split('\n') if line]
                 for line in lines:
-                    line_ = line.split()
-                    result[line_[0]] = line_[1:]
+                    _line = line.split()
+                    result[_line[0]] = _line[1:]
                 return json.dumps(result, indent=2)
         except Exception, ex:
             log.exception(ex)
@@ -409,11 +393,7 @@ def get_sysctl_info_file():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_.strip():
-                line = line + line_
+    line = ''.join(_line for _line in lines if not (_line.startswith("#") or _line.startswith(" ")) and _line.strip())
     return line
 
 def get_sysctl_info_all():
@@ -451,8 +431,8 @@ def dpkg_info():
             else:
                 lines = _remove_comment(output)
                 for line in lines:
-                    line_ = line.split(None,4)
-                    result[line_[1]] = dict(version=line_[2],type=line_[3],discription=line_[4])
+                    _line = line.split(None,4)
+                    result[_line[1]] = dict(version=_line[2],type=_line[3],discription=_line[4])
                 return json.dumps(result, indent=2)
         except Exception, ex:
             log.exception(ex)
@@ -469,11 +449,9 @@ def rpm_info_RH():
             if len(output.rstrip()) == 0:
                 return False
             else:
-                lines = ""
-                for line in output.split():
-                    if line:
-                        lines = lines + line + '\n'
-                return lines
+                lines = output.split()
+                line = '\n'.join(_line for _line in lines if _line.strip())
+                return line
         except Exception, ex:
             log.exception(ex)
             return None
@@ -530,11 +508,7 @@ def get_route_table():
             return None
         else:
             lines = output.split('\n')
-            line = ""
-            if lines:
-                for line_ in lines:
-                    if not (line_.startswith("Dest") or line_.startswith("Kern")) and line_.strip():
-                        line = line + line_ + '\n'
+            line = '\n'.join(_line for _line in lines if not (_line.startswith("Dest") or _line.startswith("Kern")) and _line.strip())
             return line
     except Exception, ex:
         log.exception(ex)
@@ -555,10 +529,7 @@ def get_iptables_info():
                 return False
             else:
                 lines = output.split('\n')
-                line = ""
-                if lines:
-                    for line_ in lines:
-                        line = line + line_
+                line = '\n'.join(_line for _line in lines)
                 return line
         except Exception, ex:
             log.exception(ex)
@@ -568,8 +539,8 @@ def get_iptables_info():
     f.close()
     line = ""
     if lines:
-        for line_ in lines:
-            line = line + line_
+        for _line in lines:
+            line = line + _line
     return line
 
 def check_mk():
@@ -579,11 +550,7 @@ def check_mk():
     f = open(filename)
     lines = f.readlines()
     f.close()
-    line = ""
-    if lines:
-        for line_ in lines:
-            if not (line_.startswith("#") or line_.startswith(" ")) and line_.strip():
-                line = line + line_
+    line = ''.join(_line for _line in lines if not (_line.startswith("#") or _line.startswith(" ")))
     return line
 
 def main(funcs):
@@ -611,7 +578,9 @@ if __name__ == '__main__':
             import json
         import psutil
         sys.path.append('netifaces')
+        sys.path.append('argparse')
         import netifaces
+        import argparse
     except Exception, ex:
         print ex
 
@@ -622,7 +591,6 @@ if __name__ == '__main__':
          'get_route_table', 'get_iptables_info', 'check_mk']
 
     if len(sys.argv) > 1:
-        import argparse
         parser = argparse.ArgumentParser(description='Server_infos Tool usages')
         parser.add_argument('command', help='command must be:' + str(funcs))
         args = parser.parse_args()
@@ -644,12 +612,3 @@ if __name__ == '__main__':
          json_str['check_mk'] = json.dumps(check_mk())
          result.append(json_str)
          print result
-         
-         #for res in result:
-         #    print json.loads(res['check_mk'])
-
-
-
-
-
-
