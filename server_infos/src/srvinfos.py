@@ -31,6 +31,7 @@ def get_all_ips():
 
 def get_primary_ip():  # connect to some where to get primary ip
     try:
+	print 'IP:'
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))
         result = s.getsockname()[0]
@@ -502,6 +503,21 @@ def get_net_stat_listen():
 def get_route_table():
     try:
         result = {}
+        ret = subprocess.Popen(["ip", "r"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = ret.stdout.read()
+        if len(output.rstrip()) == 0:
+            return None
+        else:
+	    lines = output.split('\n')
+	    line = '\n'.join(_line for _line in lines if not (_line.startswith("#") or _line.startswith(" ")) and _line.strip())
+	    return line
+    except Exception, ex:
+        log.exception(ex)
+        return None
+
+def get_route_table_2():
+    try:
+        result = {}
         ret = subprocess.Popen(["route", "-n"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output = ret.stdout.read()
         if len(output.rstrip()) == 0:
@@ -519,7 +535,7 @@ def get_iptables_info():
         filename = "/etc/sysconfig/iptables"
     elif check_os() == -1:
         #another file for Ubuntu
-        filename = "/etc/sysconfig/iptables"
+        filename = "/etc/iptables/rule.v4"
     if not os.path.isfile(filename):
         try:
             result = {}
